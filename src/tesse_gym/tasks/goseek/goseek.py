@@ -40,8 +40,6 @@ from tesse.msgs import (
 from tesse_gym.core.tesse_gym import TesseGym
 from tesse_gym.core.utils import NetworkConfig, set_all_camera_params
 
-from tesse_gym.tasks.goseek import decode_observations
-import numpy as np
 
 
 # define custom message to signal episode reset
@@ -206,23 +204,6 @@ class GoSeek(TesseGym):
             else self.continuous_controller.get_broadcast_metadata()
         )
         reward_info = {"env_changed": False, "collision": False, "n_found_targets": 0}
-
-        # compute agent's distance from targets
-        agent_position = self._get_agent_position(agent_metadata)
-        target_ids, target_position = self._get_target_id_and_positions(
-            targets.metadata
-        )
-
-        reward = -0.01  # small time penalty
-
-        # penalty for too near objects
-        far_clip_plane = 50
-        rgb, segmentation, depth, pose = decode_observations(observation)
-        depth *= far_clip_plane  # convert depth to meters
-        # binary mask for obj nearly 0.7 m
-        masked_depth = np.ma.masked_values(depth <=0.7, depth)
-        if np.count_nonzero(masked_depth) > 7000:
-            reward -= 0.3
 
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:

@@ -27,6 +27,8 @@ from gym import spaces
 from tesse.msgs import Camera, Channels, Compression, DataRequest, DataResponse
 from tesse_gym.tasks.goseek.goseek import GoSeek
 
+import numpy as np
+
 
 class GoSeekFullPerception(GoSeek):
     """ Define a custom TESSE gym environment to provide RGB, depth, segmentation, and pose data.
@@ -93,6 +95,91 @@ class GoSeekFullPerception(GoSeek):
             (Camera.DEPTH, Compression.OFF, Channels.THREE),
         ]
         return self._data_request(DataRequest(metadata=True, cameras=cameras))
+
+    def compute_reward(
+            self, observation: DataResponse, action: int
+    ) -> Tuple[float, Dict[str, Union[int, bool]]]:
+        targets = self.env.request(ObjectsRequest())
+        """ Compute reward.
+
+        Reward consists of:
+            - Small time penalty
+            - # penalty for too near objects 
+            - n_targets_found * `target_found_reward` if `action` == 3.
+                n_targets_found is the number of targets that are
+                (1) within `success_dist` of agent and (2) within
+                a bearing of `CAMERA_FOV` degrees.
+
+        Args:
+            observation (DataResponse): TESSE DataResponse object containing images
+                and metadata.
+            action (int): Action taken by agent.
+
+        Returns:
+            Tuple[float, dict[str, [bool, int]]
+                Reward
+                Dictionary with the following keys
+                    - env_changed: True if agent changed the environment.
+                    - collision: True if there was a collision
+                    - n_found_targets: Number of targets found during step.
+        """
+        # If not in ground truth mode, metadata will only provide position estimates
+        # In that case, get ground truth metadata from the controller
+        agent_metadata = (
+            observation.metadata
+            if self.ground_truth_mode
+            else self.continuous_controller.get_broadcast_metadata()
+        )
+        reward_info = {"env_changed": False, "collision": False, "n_found_targets": 0}
+
+        # compute agent's distance from targets
+        agent_position = self._get_agent_position(agent_metadata)
+        target_ids, target_position = self._get_target_id_and_positions(
+            targets.metadata
+        )
+
+        reward = -0.01  # small time penalty
+
+        # penalty for too near objects
+        far_clip_plane = 50
+        rgb, segmentation, depth, pose = decode_observations(observation)
+        depth *= far_clip_plane  # convert depth to meters
+        # binary mask for obj nearly 0.7 m
+        masked_depth = np.ma.masked_values(depth <= 0.7, depth)
+        if np.count_nonzero(masked_depth) > 7000:
+            reward -= 0.3
+
+        # check for found targets
+        if target_position.shape[0] > 0 and action == 3:
+            found_targets = self.get_found_targets(
+                agent_position, target_position, target_ids, agent_metadata
+            )
+
+            # if targets are found, update reward and related episode info
+            if len(found_targets):
+                self.n_found_targets += len(found_targets)
+                reward += self.target_found_reward * len(found_targets)
+                self.env.request(RemoveObjectsRequest(ids=found_targets))
+                reward_info["env_changed"] = True
+                reward_info["n_found_targets"] += len(found_targets)
+
+                # if all targets have been found, restart the episode
+                if self.n_found_targets == self.n_targets:
+                    self.done = True
+
+        self.steps += 1
+        if self.steps > self.episode_length:
+            self.done = True
+
+        # collision information isn't provided by the controller metadata
+        if self._collision(observation.metadata):
+            reward_info["collision"] = True
+
+            if self.restart_on_collision:
+                self.done = True
+
+        return reward, reward_info
+
 
 
 def decode_observations(
