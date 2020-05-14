@@ -143,12 +143,12 @@ class GoSeekFullPerception(GoSeek):
 
         # penalty for too near objects
         far_clip_plane = 50
-        agent_observ = self.form_agent_observation(observation)
-        rgb, segmentation, depth, pose = decode_observations(agent_observ)
+        # agent_observ = self.form_agent_observation(observation)
+        rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
         depth *= far_clip_plane  # convert depth to meters
         # binary mask for obj nearly 0.7 m
         masked_depth = np.ma.masked_values(depth <= 0.7, depth)
-        if np.count_nonzero(masked_depth) > 7000:
+        if np.count_nonzero(masked_depth) > 10000:
             reward -= 0.1
 
         # check for found targets
@@ -186,6 +186,36 @@ class GoSeekFullPerception(GoSeek):
 
 
 def decode_observations(
+    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """ Decode observation vector into images and poses.
+
+    Args:
+        observation (np.ndarray): Shape (N,) observation array of flattened
+            images concatenated with a pose vector. Thus, N is equal to N*H*W*C + N*3.
+        img_shape (Tuple[int, int, int, int]): Shapes of all observed images stacked across
+            the channel dimension, resulting in a shape of (N, H, W, C).
+             Default value is (-1, 240, 320, 5).
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Arrays with the following information
+            - RGB image(s) of shape (N, H, W, 3)
+            - Segmentation image(s) of shape (N, H, W), in range [0, C) where C is the number of classes.
+            - Depth image(s) of shape (N, H, W), in range [0, 1]. To get true depth, multiply by the
+                Unity far clipping plane (default 50).
+            - Pose array of shape (N, 3) containing (x, y, heading) relative to starting point.
+                (x, y) are in meters, heading is given in degrees in the range [-180, 180].
+    """
+    imgs = observation[:, :-3].reshape(img_shape)
+    rgb = imgs[..., :3]
+    segmentation = imgs[..., 3]
+    depth = imgs[..., 4]
+
+    pose = observation[:, -3:]
+
+    return rgb, segmentation, depth, pose
+
+def extract_img(
     observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """ Decode observation vector into images and poses.
