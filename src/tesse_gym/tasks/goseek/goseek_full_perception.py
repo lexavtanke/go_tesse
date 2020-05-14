@@ -24,10 +24,11 @@ from typing import Tuple
 import numpy as np
 from gym import spaces
 
-from tesse.msgs import Camera, Channels, Compression, DataRequest, DataResponse
+from tesse.msgs import Camera, Channels, Compression, DataRequest, DataResponse, ObjectsRequest, RemoveObjectsRequest
 from tesse_gym.tasks.goseek.goseek import GoSeek
 
 import numpy as np
+from typing import Dict, Tuple, Union
 
 
 class GoSeekFullPerception(GoSeek):
@@ -142,12 +143,13 @@ class GoSeekFullPerception(GoSeek):
 
         # penalty for too near objects
         far_clip_plane = 50
-        rgb, segmentation, depth, pose = decode_observations(observation)
+        agent_observ = self.form_agent_observation(observation)
+        rgb, segmentation, depth, pose = decode_observations(agent_observ)
         depth *= far_clip_plane  # convert depth to meters
         # binary mask for obj nearly 0.7 m
         masked_depth = np.ma.masked_values(depth <= 0.7, depth)
         if np.count_nonzero(masked_depth) > 7000:
-            reward -= 0.3
+            reward -= 0.1
 
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:
@@ -174,6 +176,7 @@ class GoSeekFullPerception(GoSeek):
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
             reward_info["collision"] = True
+            reward -= 0.1
 
             if self.restart_on_collision:
                 self.done = True
@@ -203,6 +206,7 @@ def decode_observations(
             - Pose array of shape (N, 3) containing (x, y, heading) relative to starting point.
                 (x, y) are in meters, heading is given in degrees in the range [-180, 180].
     """
+    observation = np.expand_dims(observation, axis=0)
     imgs = observation[:, :-3].reshape(img_shape)
     rgb = imgs[..., :3]
     segmentation = imgs[..., 3]
