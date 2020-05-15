@@ -141,15 +141,15 @@ class GoSeekFullPerception(GoSeek):
 
         reward = -0.01 * self.target_found_reward  # small time penalty
 
-        # # penalty for too near objects
-        # far_clip_plane = 50
-        # # agent_observ = self.form_agent_observation(observation)
-        # rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
-        # depth *= far_clip_plane  # convert depth to meters
-        # # binary mask for obj nearly 0.7 m
-        # masked_depth = np.ma.masked_values(depth <= 1.0, depth)
-        # if np.count_nonzero(masked_depth) < 30000:
-        #     reward += self.target_found_reward * 0.01
+        # penalty for too near objects
+        far_clip_plane = 50
+        # agent_observ = self.form_agent_observation(observation)
+        rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
+        depth *= far_clip_plane  # convert depth to meters
+        # binary mask for obj nearly 0.7 m
+        masked_depth = np.ma.masked_values(depth <= 1.0, depth)
+        if np.count_nonzero(masked_depth) > 30000:
+            reward -= self.target_found_reward * 0.01
 
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:
