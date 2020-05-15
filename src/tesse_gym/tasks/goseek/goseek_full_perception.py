@@ -139,17 +139,17 @@ class GoSeekFullPerception(GoSeek):
             targets.metadata
         )
 
-        reward = -0.01  # small time penalty
+        reward = -0.01 * self.target_found_reward  # small time penalty
 
-        # penalty for too near objects
-        far_clip_plane = 50
-        # agent_observ = self.form_agent_observation(observation)
-        rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
-        depth *= far_clip_plane  # convert depth to meters
-        # binary mask for obj nearly 0.7 m
-        masked_depth = np.ma.masked_values(depth <= 0.7, depth)
-        if np.count_nonzero(masked_depth) > 10000:
-            reward -= 0.1
+        # # penalty for too near objects
+        # far_clip_plane = 50
+        # # agent_observ = self.form_agent_observation(observation)
+        # rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
+        # depth *= far_clip_plane  # convert depth to meters
+        # # binary mask for obj nearly 0.7 m
+        # masked_depth = np.ma.masked_values(depth <= 1.0, depth)
+        # if np.count_nonzero(masked_depth) < 30000:
+        #     reward += self.target_found_reward * 0.01
 
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:
@@ -160,7 +160,8 @@ class GoSeekFullPerception(GoSeek):
             # if targets are found, update reward and related episode info
             if len(found_targets):
                 self.n_found_targets += len(found_targets)
-                reward += self.target_found_reward * len(found_targets)
+                reward += self.target_found_reward * len(found_targets) +\
+                          self.n_found_targets * self.target_found_reward * 0.02
                 self.env.request(RemoveObjectsRequest(ids=found_targets))
                 reward_info["env_changed"] = True
                 reward_info["n_found_targets"] += len(found_targets)
@@ -168,6 +169,8 @@ class GoSeekFullPerception(GoSeek):
                 # if all targets have been found, restart the episode
                 if self.n_found_targets == self.n_targets:
                     self.done = True
+            else:
+                reward -= self.target_found_reward * 0.01
 
         self.steps += 1
         if self.steps > self.episode_length:
@@ -176,10 +179,12 @@ class GoSeekFullPerception(GoSeek):
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
             reward_info["collision"] = True
-            reward -= 0.1
+            reward -= self.target_found_reward * 0.01
 
             if self.restart_on_collision:
                 self.done = True
+        # else:
+        #     reward += self.target_found_reward * 0.005
 
         return reward, reward_info
 
@@ -216,7 +221,7 @@ def decode_observations(
     return rgb, segmentation, depth, pose
 
 def extract_img(
-    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
+    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 120, 160, 5)
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """ Decode observation vector into images and poses.
 
