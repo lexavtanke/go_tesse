@@ -91,7 +91,7 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
         depth *= far_clip_plane  # convert depth to meters
         # binary mask for obj nearly 0.7 m
         masked_depth = np.ma.masked_values(depth <= 1.0, depth)
-        if np.count_nonzero(masked_depth) > 8000:
+        if np.count_nonzero(masked_depth) > 7000:
             reward -= self.target_found_reward * 0.01
 
         # check for found targets
@@ -113,7 +113,7 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
                 if self.n_found_targets == self.n_targets:
                     self.done = True
             else:
-                reward -= self.target_found_reward * 0.01
+                reward -= self.target_found_reward * 0.02
 
         self.steps += 1
         if self.steps > self.episode_length:
@@ -122,7 +122,7 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
             reward_info["collision"] = True
-            reward -= self.target_found_reward * 0.01
+            reward -= self.target_found_reward * 0.02
 
             if self.restart_on_collision:
                 self.done = True
@@ -216,7 +216,7 @@ def main():
     n_targets = 30  # number of targets spawned in each scene
     target_found_reward = 3  # reward per found target
     episode_length = 400
-    model_name = "real_softstalin_low_res"
+    model_name = "real_softstalin2_low_res"
 
     # Create log dir
     log_dir = "./result"
@@ -260,6 +260,8 @@ def main():
         learning_rate=0.0003,
         policy_kwargs=policy_kwargs,
     )
+
+    # model = PPO2.load('real_softstalin2_low_res_150000_steps.zip', env, verbose=1, tensorboard_log="./tensorboard/",)
 
     # Create the callback: check every 1000 steps
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=log_dir,
