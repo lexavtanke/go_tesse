@@ -221,7 +221,7 @@ def decode_observations(
     return rgb, segmentation, depth, pose
 
 def extract_img(
-    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 120, 160, 5)
+    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """ Decode observation vector into images and poses.
 
