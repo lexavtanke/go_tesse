@@ -24,6 +24,11 @@ from stable_baselines.common.callbacks import CheckpointCallback
 from tesse_gym.core.utils import set_all_camera_params
 from tesse_gym.tasks.goseek import GoSeekFullPerception
 
+#for square
+from shapely.geometry import Point, Polygon
+import math
+from shapely.ops import unary_union
+
 
 # update expected observation shape
 class GoSeekUpdatedResolution(GoSeekFullPerception):
@@ -83,16 +88,24 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
         )
 
         reward = -0.01 * self.target_found_reward  # small time penalty
-
+        # decode data by types
+        rgb, segmentation, depth, pose = self.extract_img(self.form_agent_observation(observation))
         # penalty for too near objects
         far_clip_plane = 50
         # agent_observ = self.form_agent_observation(observation)
-        rgb, segmentation, depth, pose = self.extract_img(self.form_agent_observation(observation))
         depth *= far_clip_plane  # convert depth to meters
         # binary mask for obj nearly 0.7 m
         masked_depth = np.ma.masked_values(depth <= 1.0, depth)
         if np.count_nonzero(masked_depth) > 7000:
             reward -= self.target_found_reward * 0.01
+        # get masked fruit from segmentation
+        masked_fruit = np.ma.masked_values(segmentation == 1.0, segmentation)
+        # penalty for get action without fruit in FOV
+        size_masked_fruit = np.count_nonzero(masked_fruit)
+        print(f"fruit consists of {size_masked_fruit} points")
+        if action == 3 and np.count_nonzero(masked_fruit) < 100:
+            print(f"sorry, you can't get it cause you don't see it")
+            reward -= self.target_found_reward * 0.02
 
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:
@@ -117,6 +130,11 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
 
         self.steps += 1
         if self.steps > self.episode_length:
+            square = self.getSquare()
+            # reward for search new square
+            if square < 340.0:
+                reward += 0.1 * square * self.target_found_reward
+            self.positions.clear()
             self.done = True
 
         # collision information isn't provided by the controller metadata
@@ -128,7 +146,7 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
                 self.done = True
         # else:
         #     reward += self.target_found_reward * 0.005
-
+        print(f"reward for action {action} is {reward}")
         return reward, reward_info
 
     def extract_img(
@@ -161,6 +179,24 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
         pose = observation[:, -3:]
 
         return rgb, segmentation, depth, pose
+
+    def getTriangle(self, x, y, tetha):
+        alpha = self.CAMERA_HFOV
+        radius = self.success_dist
+        x1 = x + (math.sin(math.radians(tetha + (alpha / 2))) * radius)
+        y1 = y + (math.cos(math.radians(tetha + (alpha / 2))) * radius)
+        x2 = x + (math.sin(math.radians(tetha - (alpha / 2))) * radius)
+        y2 = y + (math.cos(math.radians(tetha - (alpha / 2))) * radius)
+        return Polygon([(x, y), (x1, y1), (x2, y2)])
+
+    def getSquare(self):
+        polygons = []
+        for ar in self.positions:
+            poly = self.getTriangle(ar.item(0), ar.item(1), ar.item(2))
+            polygons.append(poly)
+
+        result = unary_union(polygons)
+        return result.area
 
 
 # update simulator cameras on init
@@ -211,12 +247,12 @@ def image_and_pose_network(observation, **kwargs):
 
 def main():
     n_environments = 5  # number of environments to train over
-    total_timesteps = 1000000  # number of training timesteps
+    total_timesteps = 1200000  # number of training timesteps
     scene_id = [5, 2, 3, 4, 5, 5]  # list all available scenes
     n_targets = 30  # number of targets spawned in each scene
     target_found_reward = 3  # reward per found target
     episode_length = 400
-    model_name = "real_softstalin2_low_res"
+    model_name = "fruit_sem_real_softstalin2_low_res"
 
     # Create log dir
     log_dir = "./result"
@@ -250,18 +286,27 @@ def main():
     policy_kwargs = {'cnn_extractor': image_and_pose_network}
 
     model = PPO2(
-        CnnLstmPolicy,
-        env,
-        verbose=1,
-        tensorboard_log="./tensorboard/",
-        nminibatches=5,
-        n_steps=256,
-        gamma=0.995,
-        learning_rate=0.0003,
-        policy_kwargs=policy_kwargs,
+       CnnLstmPolicy,
+       env,
+       verbose=1,
+       tensorboard_log="./tensorboard/",
+       nminibatches=5,
+       n_steps=256,
+       gamma=0.995,
+       learning_rate=0.0003,
+       policy_kwargs=policy_kwargs,
     )
 
-    # model = PPO2.load('real_softstalin2_low_res_150000_steps.zip', env, verbose=1, tensorboard_log="./tensorboard/",)
+    # model = PPO2.load(
+    #     'real_softstalin2_low_res_800000_steps.zip',
+    #     env,
+    #     verbose=1,
+    #     tensorboard_log="./tensorboard/",
+    #     nminibatches=5,
+    #     n_steps=256,
+    #     gamma=0.995,
+    #     learning_rate=0.0003,
+    #     )
 
     # Create the callback: check every 1000 steps
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=log_dir,

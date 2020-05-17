@@ -105,6 +105,7 @@ class GoSeek(TesseGym):
         self.target_found_reward = target_found_reward
         self.n_found_targets = 0
         self.n_target_types = n_target_types
+        self.positions = []
 
     @property
     def action_space(self) -> spaces.Discrete:
