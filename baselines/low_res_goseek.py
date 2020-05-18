@@ -100,11 +100,11 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
             reward -= self.target_found_reward * 0.01
         # get masked fruit from segmentation
         masked_fruit = np.ma.masked_values(segmentation == 1.0, segmentation)
-        # penalty for get action without fruit in FOV
+        # penalty for get action without fruit in camera observation
         size_masked_fruit = np.count_nonzero(masked_fruit)
-        print(f"fruit consists of {size_masked_fruit} points")
-        if action == 3 and np.count_nonzero(masked_fruit) < 100:
-            print(f"sorry, you can't get it cause you don't see it")
+        # print(f"fruit consists of {size_masked_fruit} points")
+        if action == 3 and np.count_nonzero(masked_fruit) < 90:
+            # print(f"sorry, you can't get it cause you don't see it")
             reward -= self.target_found_reward * 0.02
 
         # check for found targets
@@ -146,7 +146,7 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
                 self.done = True
         # else:
         #     reward += self.target_found_reward * 0.005
-        print(f"reward for action {action} is {reward}")
+        # print(f"reward for action {action} is {reward}")
         return reward, reward_info
 
     def extract_img(
