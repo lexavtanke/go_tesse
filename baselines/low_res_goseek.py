@@ -24,7 +24,7 @@ from stable_baselines.common.callbacks import CheckpointCallback
 from tesse_gym.core.utils import set_all_camera_params
 from tesse_gym.tasks.goseek import GoSeekFullPerception
 
-#for square
+# for square
 from shapely.geometry import Point, Polygon
 import math
 from shapely.ops import unary_union
@@ -116,8 +116,14 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
             # if targets are found, update reward and related episode info
             if len(found_targets):
                 self.n_found_targets += len(found_targets)
-                reward += self.target_found_reward * len(found_targets) +\
-                          self.n_found_targets * self.target_found_reward * 0.02
+                relative_pose = self.get_pose()
+                # relative_distanse = math.sqrt(relative_pose[0]**2 + relative_pose[1]**2)
+                fruit_position_bonus = math.sqrt(
+                    relative_pose[0] ** 2 + relative_pose[1] ** 2) * self.target_found_reward * 0.02
+                # print(f"position fruit bonus is {fruit_position_bonus} relative distanse is {relative_distanse}")
+                reward += self.target_found_reward * len(found_targets) + \
+                          self.n_found_targets * self.target_found_reward * 0.02 + fruit_position_bonus
+
                 self.env.request(RemoveObjectsRequest(ids=found_targets))
                 reward_info["env_changed"] = True
                 reward_info["n_found_targets"] += len(found_targets)
@@ -285,28 +291,28 @@ def main():
 
     policy_kwargs = {'cnn_extractor': image_and_pose_network}
 
-    model = PPO2(
-       CnnLstmPolicy,
-       env,
-       verbose=1,
-       tensorboard_log="./tensorboard/",
-       nminibatches=5,
-       n_steps=256,
-       gamma=0.995,
-       learning_rate=0.0003,
-       policy_kwargs=policy_kwargs,
-    )
+    # model = PPO2(
+    #    CnnLstmPolicy,
+    #    env,
+    #    verbose=1,
+    #    tensorboard_log="./tensorboard/",
+    #    nminibatches=1,
+    #    n_steps=256,
+    #    gamma=0.995,
+    #    learning_rate=0.0003,
+    #    policy_kwargs=policy_kwargs,
+    # )
 
-    # model = PPO2.load(
-    #     'real_softstalin2_low_res_800000_steps.zip',
-    #     env,
-    #     verbose=1,
-    #     tensorboard_log="./tensorboard/",
-    #     nminibatches=5,
-    #     n_steps=256,
-    #     gamma=0.995,
-    #     learning_rate=0.0003,
-    #     )
+    model = PPO2.load(
+        'fruit_sem_real_softstalin2_low_res_1050000_steps.zip',
+        env,
+        verbose=1,
+        tensorboard_log="./tensorboard/",
+        nminibatches=5,
+        n_steps=256,
+        gamma=0.995,
+        learning_rate=0.0003,
+    )
 
     # Create the callback: check every 1000 steps
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=log_dir,
@@ -314,7 +320,7 @@ def main():
 
     model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback)
 
-    model.save(model_name+"_final")
+    model.save(model_name + "_final")
 
     return True
 
