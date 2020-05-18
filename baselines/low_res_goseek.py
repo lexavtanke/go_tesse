@@ -45,6 +45,64 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
        """
         return spaces.Box(np.Inf, np.Inf, shape=(120 * 160 * 5 + 3,))
 
+    def form_agent_observation(self, tesse_data: DataResponse) -> np.ndarray:
+        """ Create the agent's observation from a TESSE data response.
+
+        Args:
+            tesse_data (DataResponse): TESSE DataResponse object containing
+                RGB, depth, segmentation, and pose.
+
+        Returns:
+            np.ndarray: The agent's observation consisting of flatted RGB,
+                segmentation, and depth images concatenated with the relative
+                pose vector. To recover images and pose, see `decode_observations` below.
+        """
+        eo, seg, depth = tesse_data.images
+        seg = seg[..., 0].copy()  # get segmentation as one-hot encoding
+
+        # See WALL_CLS comment
+        seg[seg > (self.N_CLASSES - 1)] = self.WALL_CLS
+        observation = np.concatenate(
+            (
+                eo / 255.0,
+                seg[..., np.newaxis] / (self.N_CLASSES - 1),
+                depth[..., np.newaxis],
+            ),
+            axis=-1,
+        ).reshape(-1)
+        pose = self.get_pose().reshape((3))
+        # print("_______________________________")
+        # print("OBSERVATIO SHAPe ", observation.shape)
+        # print("pose shape ", pose.shape)
+
+
+        img_shape = (-1, 120, 160, 5)
+        #     print('observation shape', observation.shape)
+        # observation = np.expand_dims(observation, axis=0)
+        imgs = observation.reshape(img_shape)
+        #     print('image shape', imgs.shape)
+        rgb = imgs[..., :3]
+        #     print('rgb shape', rgb.shape)
+        gray = np.dot(rgb[..., :3], np.array([0.2989, 0.5870, 0.1140]).reshape(-1, 1))
+        #     print('gray shape', gray.shape)
+        segmentation = imgs[..., 3]
+        segmentation = np.expand_dims(segmentation, axis=3)
+        #     print('segmentation shape', segmentation.shape)
+        masked_fruit = np.ma.masked_values(segmentation == 1.0, segmentation)
+        #     masked_fruit = np.expand_dims(masked_fruit, axis=3)
+        # print('masked_fruit', masked_fruit.shape)
+        masked_furniture = np.ma.masked_inside(segmentation, 0.5, 1.0)
+        #     masked_furniture = np.expand_dims(masked_furniture, axis=3)
+        depth = imgs[..., 4]
+        depth = np.expand_dims(depth, axis=3)
+        #     print('depth shape', depth.shape)
+
+        imgs = np.concatenate((gray, segmentation, masked_fruit, masked_furniture, depth), axis=-1)
+        #     print('new imgs shape ', imgs.shape)
+        observation = imgs.reshape((img_shape[1] * img_shape[2] * img_shape[3]))
+        # print("observ shape before concat ", observation.shape)
+        return np.concatenate((observation, pose))
+
     def compute_reward(
             self, observation: DataResponse, action: int
     ) -> Tuple[float, Dict[str, Union[int, bool]]]:
@@ -252,7 +310,7 @@ def image_and_pose_network(observation, **kwargs):
 
 
 def main():
-    n_environments = 5  # number of environments to train over
+    n_environments = 1  # number of environments to train over
     total_timesteps = 1200000  # number of training timesteps
     scene_id = [5, 2, 3, 4, 5, 5]  # list all available scenes
     n_targets = 30  # number of targets spawned in each scene
@@ -291,28 +349,28 @@ def main():
 
     policy_kwargs = {'cnn_extractor': image_and_pose_network}
 
-    # model = PPO2(
-    #    CnnLstmPolicy,
-    #    env,
-    #    verbose=1,
-    #    tensorboard_log="./tensorboard/",
-    #    nminibatches=1,
-    #    n_steps=256,
-    #    gamma=0.995,
-    #    learning_rate=0.0003,
-    #    policy_kwargs=policy_kwargs,
-    # )
-
-    model = PPO2.load(
-        'fruit_sem_real_softstalin2_low_res_1050000_steps.zip',
-        env,
-        verbose=1,
-        tensorboard_log="./tensorboard/",
-        nminibatches=5,
-        n_steps=256,
-        gamma=0.995,
-        learning_rate=0.0003,
+    model = PPO2(
+       CnnLstmPolicy,
+       env,
+       verbose=1,
+       tensorboard_log="./tensorboard/",
+       nminibatches=1,
+       n_steps=256,
+       gamma=0.995,
+       learning_rate=0.0003,
+       policy_kwargs=policy_kwargs,
     )
+
+    # model = PPO2.load(
+    #     'fruit_sem_real_softstalin2_low_res_1050000_steps.zip',
+    #     env,
+    #     verbose=1,
+    #     tensorboard_log="./tensorboard/",
+    #     nminibatches=1,
+    #     n_steps=256,
+    #     gamma=0.995,
+    #     learning_rate=0.0003,
+    # )
 
     # Create the callback: check every 1000 steps
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=log_dir,
