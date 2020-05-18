@@ -193,13 +193,13 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
                 reward -= self.target_found_reward * 0.02
 
         self.steps += 1
-        if self.steps > self.episode_length:
-            square = self.getSquare()
-            # reward for search new square
-            if square < 340.0:
-                reward += 0.1 * square * self.target_found_reward
-            self.positions.clear()
-            self.done = True
+        # if self.steps > self.episode_length:
+        #     square = self.getSquare()
+        #     # reward for search new square
+        #     if square < 340.0:
+        #         reward += 0.1 * square * self.target_found_reward
+        #     self.positions.clear()
+        #     self.done = True
 
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
@@ -310,13 +310,13 @@ def image_and_pose_network(observation, **kwargs):
 
 
 def main():
-    n_environments = 1  # number of environments to train over
+    n_environments = 5  # number of environments to train over
     total_timesteps = 1200000  # number of training timesteps
     scene_id = [5, 2, 3, 4, 5, 5]  # list all available scenes
     n_targets = 30  # number of targets spawned in each scene
     target_found_reward = 3  # reward per found target
     episode_length = 400
-    model_name = "fruit_sem_real_softstalin2_low_res_continue_dist"
+    model_name = "fruit_sem_real_softstalin2_pos_low_res_mux"
 
     # Create log dir
     log_dir = "./result"
@@ -354,7 +354,7 @@ def main():
        env,
        verbose=1,
        tensorboard_log="./tensorboard/",
-       nminibatches=1,
+       nminibatches=5,
        n_steps=256,
        gamma=0.995,
        learning_rate=0.0003,
