@@ -258,7 +258,7 @@ def main():
     n_targets = 30  # number of targets spawned in each scene
     target_found_reward = 3  # reward per found target
     episode_length = 400
-    model_name = "fruit_sem_real_softstalin2_low_res"
+    model_name = "fruit_sem_real_softstalin2_low_res_continue_dist"
 
     # Create log dir
     log_dir = "./result"
