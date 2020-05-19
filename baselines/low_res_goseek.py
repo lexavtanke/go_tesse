@@ -193,13 +193,13 @@ class GoSeekUpdatedResolution(GoSeekFullPerception):
                 reward -= self.target_found_reward * 0.02
 
         self.steps += 1
-        # if self.steps > self.episode_length:
-        #     square = self.getSquare()
-        #     # reward for search new square
-        #     if square < 340.0:
-        #         reward += 0.1 * square * self.target_found_reward
-        #     self.positions.clear()
-        #     self.done = True
+        if self.steps > self.episode_length:
+            # square = self.getSquare()
+            # # reward for search new square
+            # if square < 340.0:
+            #     reward += 0.1 * square * self.target_found_reward
+            # self.positions.clear()
+            self.done = True
 
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
@@ -376,7 +376,7 @@ def main():
     checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=log_dir,
                                              name_prefix=model_name)
 
-    model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback)
+    model.learn(total_timesteps=total_timesteps, callback=checkpoint_callback, tb_log_name=model_name)
 
     model.save(model_name + "_final")
 
