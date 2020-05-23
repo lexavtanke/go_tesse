@@ -101,6 +101,8 @@ class TesseGym(GymEnv):
                     "--set_resolution",
                     str(self.shape[1]),
                     str(self.shape[0]),
+                    "--capture_rate",
+                    "60",
                 ]
             )
 
