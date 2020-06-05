@@ -96,12 +96,10 @@ class GoSeekBenchmark(Benchmark):
             obs = self.env.reset(
                 scene_id=self.scenes[episode], random_seed=self.random_seeds[episode]
             )
-            sum_rew = 0
+
             for step in tqdm.tqdm(range(self.episode_length[episode])):
                 action = agent.act(obs)
                 obs, reward, done, info = self.env.step(action)
-                sum_rew += reward
-                print(f"action reward is {reward} total episode reward is {sum_rew}")
                 n_found_targets += info["n_found_targets"]
 
                 if action == 3:

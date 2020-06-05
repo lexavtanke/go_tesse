@@ -24,11 +24,8 @@ from typing import Tuple
 import numpy as np
 from gym import spaces
 
-from tesse.msgs import Camera, Channels, Compression, DataRequest, DataResponse, ObjectsRequest, RemoveObjectsRequest
+from tesse.msgs import Camera, Channels, Compression, DataRequest, DataResponse
 from tesse_gym.tasks.goseek.goseek import GoSeek
-
-import numpy as np
-from typing import Dict, Tuple, Union
 
 
 class GoSeekFullPerception(GoSeek):
@@ -97,98 +94,6 @@ class GoSeekFullPerception(GoSeek):
         ]
         return self._data_request(DataRequest(metadata=True, cameras=cameras))
 
-    def compute_reward(
-            self, observation: DataResponse, action: int
-    ) -> Tuple[float, Dict[str, Union[int, bool]]]:
-        targets = self.env.request(ObjectsRequest())
-        """ Compute reward.
-
-        Reward consists of:
-            - Small time penalty
-            - # penalty for too near objects 
-            - n_targets_found * `target_found_reward` if `action` == 3.
-                n_targets_found is the number of targets that are
-                (1) within `success_dist` of agent and (2) within
-                a bearing of `CAMERA_FOV` degrees.
-
-        Args:
-            observation (DataResponse): TESSE DataResponse object containing images
-                and metadata.
-            action (int): Action taken by agent.
-
-        Returns:
-            Tuple[float, dict[str, [bool, int]]
-                Reward
-                Dictionary with the following keys
-                    - env_changed: True if agent changed the environment.
-                    - collision: True if there was a collision
-                    - n_found_targets: Number of targets found during step.
-        """
-        # If not in ground truth mode, metadata will only provide position estimates
-        # In that case, get ground truth metadata from the controller
-        agent_metadata = (
-            observation.metadata
-            if self.ground_truth_mode
-            else self.continuous_controller.get_broadcast_metadata()
-        )
-        reward_info = {"env_changed": False, "collision": False, "n_found_targets": 0}
-
-        # compute agent's distance from targets
-        agent_position = self._get_agent_position(agent_metadata)
-        target_ids, target_position = self._get_target_id_and_positions(
-            targets.metadata
-        )
-
-        reward = -0.01 * self.target_found_reward  # small time penalty
-
-        # penalty for too near objects
-        far_clip_plane = 50
-        # agent_observ = self.form_agent_observation(observation)
-        rgb, segmentation, depth, pose = extract_img(self.form_agent_observation(observation))
-        depth *= far_clip_plane  # convert depth to meters
-        # binary mask for obj nearly 0.7 m
-        masked_depth = np.ma.masked_values(depth <= 1.0, depth)
-        if np.count_nonzero(masked_depth) > 30000:
-            reward -= self.target_found_reward * 0.01
-
-        # check for found targets
-        if target_position.shape[0] > 0 and action == 3:
-            found_targets = self.get_found_targets(
-                agent_position, target_position, target_ids, agent_metadata
-            )
-
-            # if targets are found, update reward and related episode info
-            if len(found_targets):
-                self.n_found_targets += len(found_targets)
-                reward += self.target_found_reward * len(found_targets) +\
-                          self.n_found_targets * self.target_found_reward * 0.02
-                self.env.request(RemoveObjectsRequest(ids=found_targets))
-                reward_info["env_changed"] = True
-                reward_info["n_found_targets"] += len(found_targets)
-
-                # if all targets have been found, restart the episode
-                if self.n_found_targets == self.n_targets:
-                    self.done = True
-            else:
-                reward -= self.target_found_reward * 0.01
-
-        self.steps += 1
-        if self.steps > self.episode_length:
-            self.done = True
-
-        # collision information isn't provided by the controller metadata
-        if self._collision(observation.metadata):
-            reward_info["collision"] = True
-            reward -= self.target_found_reward * 0.01
-
-            if self.restart_on_collision:
-                self.done = True
-        # else:
-        #     reward += self.target_found_reward * 0.005
-
-        return reward, reward_info
-
-
 
 def decode_observations(
     observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
@@ -211,37 +116,6 @@ def decode_observations(
             - Pose array of shape (N, 3) containing (x, y, heading) relative to starting point.
                 (x, y) are in meters, heading is given in degrees in the range [-180, 180].
     """
-    imgs = observation[:, :-3].reshape(img_shape)
-    rgb = imgs[..., :3]
-    segmentation = imgs[..., 3]
-    depth = imgs[..., 4]
-
-    pose = observation[:, -3:]
-
-    return rgb, segmentation, depth, pose
-
-def extract_img(
-    observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """ Decode observation vector into images and poses.
-
-    Args:
-        observation (np.ndarray): Shape (N,) observation array of flattened
-            images concatenated with a pose vector. Thus, N is equal to N*H*W*C + N*3.
-        img_shape (Tuple[int, int, int, int]): Shapes of all observed images stacked across
-            the channel dimension, resulting in a shape of (N, H, W, C).
-             Default value is (-1, 240, 320, 5).
-
-    Returns:
-        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Arrays with the following information
-            - RGB image(s) of shape (N, H, W, 3)
-            - Segmentation image(s) of shape (N, H, W), in range [0, C) where C is the number of classes.
-            - Depth image(s) of shape (N, H, W), in range [0, 1]. To get true depth, multiply by the
-                Unity far clipping plane (default 50).
-            - Pose array of shape (N, 3) containing (x, y, heading) relative to starting point.
-                (x, y) are in meters, heading is given in degrees in the range [-180, 180].
-    """
-    observation = np.expand_dims(observation, axis=0)
     imgs = observation[:, :-3].reshape(img_shape)
     rgb = imgs[..., :3]
     segmentation = imgs[..., 3]
