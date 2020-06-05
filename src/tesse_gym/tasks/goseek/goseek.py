@@ -40,6 +40,10 @@ from tesse.msgs import (
 from tesse_gym.core.tesse_gym import TesseGym
 from tesse_gym.core.utils import NetworkConfig, set_all_camera_params
 
+#for square
+from shapely.geometry import Point, Polygon
+import math
+from shapely.ops import unary_union
 
 
 # define custom message to signal episode reset
@@ -106,6 +110,13 @@ class GoSeek(TesseGym):
         self.n_found_targets = 0
         self.n_target_types = n_target_types
         self.positions = []
+        self.n_predictions = 0
+        self.n_collisions = 0
+        self.n_successful_predictions = 0
+        self.episode_num = 0
+        self.resultFigure = None
+        self.prev_action = -1
+
 
     @property
     def action_space(self) -> spaces.Discrete:
@@ -141,6 +152,13 @@ class GoSeek(TesseGym):
 
         self.env.request(RemoveObjectsRequest())
         self.n_found_targets = 0
+        self.n_successful_predictions  = 0
+        self.n_collisions = 0
+        self.n_predictions = 0
+        self.positions.clear()
+        self.resultFigure = None
+        self.episode_num += 1
+        self.prev_action = -1
 
         for i in range(self.n_targets):
             self.env.request(
@@ -170,6 +188,71 @@ class GoSeek(TesseGym):
         elif action != 3:
             raise ValueError(f"Unexpected action {action}")
 
+    def getTriangle(self, x, y, tetha):
+        alpha = self.CAMERA_HFOV
+        radius = self.success_dist
+        x1 = x + (math.sin(math.radians( tetha + (alpha / 2))) * radius)
+        y1 = y + (math.cos(math.radians( tetha + (alpha / 2))) * radius)
+        x2 = x + (math.sin(math.radians( tetha - (alpha / 2))) * radius)
+        y2 = y + (math.cos(math.radians( tetha - (alpha / 2))) * radius)
+        return Polygon([(x, y), (x1, y1), (x2, y2)])
+
+    def getSquare(self):
+        polygons = []
+        for ar in self.positions:
+            poly = self.getTriangle(ar.item(0),ar.item(1),ar.item(2))
+            polygons.append(poly)
+            
+        result = unary_union(polygons)
+        return result.area
+
+    def getSquareStep(self, position):
+        
+        polygons = []
+        poly = self.getTriangle(position.item(0),position.item(1),position.item(2))
+        polygons.append(poly)
+    
+        if self.resultFigure is None:
+            polygons.append(poly)
+        else:
+            polygons.append(self.resultFigure)
+            
+        self.resultFigure = unary_union(polygons)
+        return self.resultFigure.area
+
+
+    def decode_observations2(
+        self, observation: np.ndarray, img_shape: Tuple[int, int, int, int] = (-1, 240, 320, 5)
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """ Decode observation vector into images and poses.
+
+        Args:
+            observation (np.ndarray): Shape (N,) observation array of flattened
+                images concatenated with a pose vector. Thus, N is equal to N*H*W*C + N*3.
+            img_shape (Tuple[int, int, int, int]): Shapes of all observed images stacked across
+                the channel dimension, resulting in a shape of (N, H, W, C).
+                Default value is (-1, 240, 320, 5).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Arrays with the following information
+                - RGB image(s) of shape (N, H, W, 3)
+                - Segmentation image(s) of shape (N, H, W), in range [0, C) where C is the number of classes.
+                - Depth image(s) of shape (N, H, W), in range [0, 1]. To get true depth, multiply by the
+                    Unity far clipping plane (default 50).
+                - Pose array of shape (N, 3) containing (x, y, heading) relative to starting point.
+                    (x, y) are in meters, heading is given in degrees in the range [-180, 180].
+        """
+        
+        observation = np.expand_dims(observation, axis=0)
+        imgs = observation[:, :-3].reshape(img_shape)
+        rgb = imgs[..., :3]
+        segmentation = imgs[..., 3]
+        depth = imgs[..., 4]
+
+        pose = observation[:, -3:]
+        return rgb, segmentation, depth, pose
+
+
     def compute_reward(
         self, observation: DataResponse, action: int
     ) -> Tuple[float, Dict[str, Union[int, bool]]]:
@@ -196,6 +279,7 @@ class GoSeek(TesseGym):
                     - n_found_targets: Number of targets found during step.
         """
         targets = self.env.request(ObjectsRequest())
+#        print("reward!")
 
         # If not in ground truth mode, metadata will only provide position estimates
         # In that case, get ground truth metadata from the controller
@@ -206,34 +290,112 @@ class GoSeek(TesseGym):
         )
         reward_info = {"env_changed": False, "collision": False, "n_found_targets": 0}
 
+        # compute agent's distance from targets
+        agent_position = self._get_agent_position(agent_metadata)
+        target_ids, target_position = self._get_target_id_and_positions(
+            targets.metadata
+        )
+
+        reward = -0.01  # small time penalty
+
+        if self.prev_action == 3 and action == 3:
+            reward -= 0.1 * self.target_found_reward
+        if self.prev_action == 1 and action == 2:
+            reward -= 0.1 * self.target_found_reward
+        if self.prev_action == 2 and action == 1:
+            reward -= 0.1 * self.target_found_reward
+
+        self.prev_action = action    
+
+        rgb, segmentation, depth, pose = self.decode_observations2(self.form_agent_observation(observation))
+ #       depth *= 50  # convert depth to meters
+        # binary mask for obj nearly 0.7 m
+#        masked_depth = np.ma.masked_values(depth <= 1.0, depth)
+ #       if np.count_nonzero(masked_depth) > 25000:
+#            reward -= self.target_found_reward * 0.01
+
+    #    mask = np.all(segmentation == (10,138,80), axis=-1)
+    #    print(mask)
+#        if action == 3:
+  #      masked_fruit = np.ma.masked_values(segmentation == 1.0, segmentation)
+  #      if np.count_nonzero(masked_fruit) > 0:
+  #          reward += self.target_found_reward * 0.01 
+
+  #      if action == 0:
+  #          masked_chair = np.ma.masked_values(segmentation == 0.6, segmentation)
+  #          if np.count_nonzero(masked_chair) > 300:
+  #              reward -= self.target_found_reward * 0.01  *  np.count_nonzero(masked_chair) / 76800
+        if action == 3:
+            self.n_predictions += 1
+
         # check for found targets
         if target_position.shape[0] > 0 and action == 3:
             found_targets = self.get_found_targets(
                 agent_position, target_position, target_ids, agent_metadata
             )
-
+            
             # if targets are found, update reward and related episode info
             if len(found_targets):
                 self.n_found_targets += len(found_targets)
-                reward += self.target_found_reward * len(found_targets)
+                reward += self.target_found_reward * len(found_targets) * 2
+                self.n_successful_predictions += 1
                 self.env.request(RemoveObjectsRequest(ids=found_targets))
                 reward_info["env_changed"] = True
                 reward_info["n_found_targets"] += len(found_targets)
 
                 # if all targets have been found, restart the episode
                 if self.n_found_targets == self.n_targets:
+                    reward += 30.0
                     self.done = True
+            else:
+                masked_fruit = np.ma.masked_values(segmentation == 1.0, segmentation)
+                count_fruitPix = np.count_nonzero(masked_fruit)
+                if count_fruitPix > 0:
+                    reward -= 0.01 * self.target_found_reward * (100 / count_fruitPix)
+                else:
+                    reward -= 0.1 * self.target_found_reward
+            #    reward -= 0.01 * self.target_found_reward   
+       
+
+        # self.positions.append(agent_position) 
+        depth *= 50  # convert depth to meters
+        masked_depth = np.ma.masked_values(depth > 45.0, depth)
+        if np.count_nonzero(masked_depth) < 35000:
+            square = self.getSquareStep(agent_position)
+            if square < 340.0:
+                reward += 0.001 * square * self.target_found_reward    
 
         self.steps += 1
         if self.steps > self.episode_length:
+        #    self.positions.clear()
             self.done = True
+            ##print results for episode
+            precision = (
+                1 if self.n_predictions == 0 else self.n_successful_predictions / self.n_predictions
+            )
+            recall = self.n_found_targets / self.n_targets
+            weight_total = recall + 0.1 * precision - 0.1 * self.n_collisions / self.episode_length - 0.1
+    
+            results = {
+                "episode_num" : self.episode_num,
+                "weight_total" : weight_total,
+                "precision": precision,
+                "recall": recall,
+                "collisions": self.n_collisions,
+            }
+            print (results)
 
         # collision information isn't provided by the controller metadata
         if self._collision(observation.metadata):
+            self.n_collisions += 1
             reward_info["collision"] = True
-
+            reward -= self.target_found_reward * 0.1
             if self.restart_on_collision:
                 self.done = True
+       # else:
+       #     reward += 0.0125 * self.target_found_reward
+
+
 
         return reward, reward_info
 
